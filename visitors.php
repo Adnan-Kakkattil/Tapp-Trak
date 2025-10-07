@@ -101,6 +101,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Store visitor log ID for QR code generation
                 $_SESSION['new_visitor_log_id'] = $visitor_log_id;
+                $_SESSION['new_visitor_log_data'] = [
+                    'id' => $visitor_log_id,
+                    'visitor_id' => $visitor_id,
+                    'flat_id' => $flat_id,
+                    'guard_id' => $guard_id,
+                    'expected_duration' => $expected_duration
+                ];
                 
                 // Send check-in notification
                 sendCheckinNotification($visitor_log_id);
@@ -230,7 +237,6 @@ if (isset($_GET['logout'])) {
     <title><?php echo SITE_NAME; ?> - Visitors Management</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
     <style>
         :where([class^="ri-"])::before { content: "\f3c2"; }
     </style>
@@ -245,6 +251,7 @@ if (isset($_GET['logout'])) {
                 }
             }
         }
+        
     </script>
 </head>
 <body class="bg-gray-50 font-sans">
@@ -356,6 +363,133 @@ if (isset($_GET['logout'])) {
                                     <?php echo $message; ?>
                                 </p>
                             </div>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
+                <!-- QR Code Display for New Visitor -->
+                <?php if (isset($_SESSION['new_visitor_id']) && $message_type === 'success'): ?>
+                    <?php
+                    $new_visitor_id = $_SESSION['new_visitor_id'];
+                    $sql = "SELECT * FROM visitors WHERE id = ?";
+                    $stmt = $db->prepare($sql);
+                    $stmt->bind_param("i", $new_visitor_id);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                    $new_visitor = $result->fetch_assoc();
+                    $stmt->close();
+                    unset($_SESSION['new_visitor_id']);
+                    ?>
+                    <div class="bg-white rounded-xl shadow-sm border">
+                        <div class="p-6 border-b">
+                            <h2 class="text-lg font-semibold text-gray-900">Visitor QR Code Generated</h2>
+                            <p class="text-gray-600 text-sm mt-1">QR code for <?php echo htmlspecialchars($new_visitor['full_name']); ?></p>
+                        </div>
+                        <div class="p-6 text-center">
+                            <div id="visitorQRCode" class="mb-4 flex justify-center"></div>
+                            <div class="space-y-2 text-sm text-gray-600">
+                                <p><strong>Name:</strong> <?php echo htmlspecialchars($new_visitor['full_name']); ?></p>
+                                <p><strong>Phone:</strong> <?php echo htmlspecialchars($new_visitor['phone']); ?></p>
+                                <p><strong>ID Proof:</strong> <?php echo htmlspecialchars($new_visitor['id_proof_type'] . ' - ' . $new_visitor['id_proof_number']); ?></p>
+                            </div>
+                            <div class="mt-4 flex justify-center space-x-3">
+                                <button onclick="printQRCode()" class="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary/90">
+                                    <i class="ri-printer-line mr-2"></i>Print QR Code
+                                </button>
+                                <button onclick="closeQRDisplay()" class="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600">
+                                    <i class="ri-close-line mr-2"></i>Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <script>
+                        // Generate QR code for visitor
+                        document.addEventListener('DOMContentLoaded', function() {
+                            const visitorData = {
+                                type: 'visitor',
+                                id: <?php echo $new_visitor['id']; ?>,
+                                name: '<?php echo addslashes($new_visitor['full_name']); ?>',
+                                phone: '<?php echo addslashes($new_visitor['phone']); ?>',
+                                id_proof_type: '<?php echo addslashes($new_visitor['id_proof_type']); ?>',
+                                id_proof_number: '<?php echo addslashes($new_visitor['id_proof_number']); ?>',
+                                created_at: '<?php echo date('Y-m-d H:i:s'); ?>',
+                                valid_until: '<?php echo date('Y-m-d H:i:s', strtotime('+1 year')); ?>'
+                            };
+                            
+                            const qrElement = document.getElementById('visitorQRCode');
+                            if (qrElement) {
+                                QRCode.toCanvas(qrElement, JSON.stringify(visitorData), {
+                                    width: 200,
+                                    height: 200,
+                                    color: {
+                                        dark: '#000000',
+                                        light: '#FFFFFF'
+                                    },
+                                    errorCorrectionLevel: 'M'
+                                }, function (error) {
+                                    if (error) {
+                                        console.error('QR Code generation error:', error);
+                                        qrElement.innerHTML = '<p class="text-red-500">Error generating QR code</p>';
+                                    } else {
+                                        console.log('QR Code generated successfully');
+                                    }
+                                });
+                            }
+                        });
+                        
+                        function printQRCode() {
+                            window.print();
+                        }
+                        
+                        function closeQRDisplay() {
+                            const qrContainer = document.querySelector('.bg-white.rounded-xl.shadow-sm.border');
+                            if (qrContainer) {
+                                qrContainer.remove();
+                            }
+                        }
+                    </script>
+                <?php endif; ?>
+
+                <!-- Check-in Success Message with QR Code Button -->
+                <?php if (isset($_SESSION['new_visitor_log_id']) && $message_type === 'success'): ?>
+                    <?php
+                    $new_visitor_log_id = $_SESSION['new_visitor_log_id'];
+                    $new_visitor_log_data = $_SESSION['new_visitor_log_data'];
+                    
+                    // Get visitor and flat details
+                    $sql = "SELECT 
+                                v.full_name as visitor_name,
+                                f.flat_number
+                            FROM visitors v, flats f
+                            WHERE v.id = ? AND f.id = ?";
+                    $stmt = $db->prepare($sql);
+                    $stmt->bind_param("ii", $new_visitor_log_data['visitor_id'], $new_visitor_log_data['flat_id']);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                    $details = $result->fetch_assoc();
+                    $stmt->close();
+                    
+                    unset($_SESSION['new_visitor_log_id']);
+                    unset($_SESSION['new_visitor_log_data']);
+                    ?>
+                    <div class="bg-white rounded-xl shadow-sm border">
+                        <div class="p-6 border-b">
+                            <h2 class="text-lg font-semibold text-gray-900">Check-in Successful!</h2>
+                            <p class="text-gray-600 text-sm mt-1">Visitor checked in successfully</p>
+                        </div>
+                        <div class="p-6 text-center">
+                            <div class="mb-4">
+                                <i class="ri-check-line text-6xl text-green-500"></i>
+                            </div>
+                            <div class="space-y-2 text-sm text-gray-600 mb-4">
+                                <p><strong>Visitor:</strong> <?php echo htmlspecialchars($details['visitor_name']); ?></p>
+                                <p><strong>Flat:</strong> <?php echo htmlspecialchars($details['flat_number']); ?></p>
+                                <p><strong>Expected Duration:</strong> <?php echo $new_visitor_log_data['expected_duration']; ?> minutes</p>
+                            </div>
+                            <button onclick="generateCheckinQR(<?php echo $new_visitor_log_id; ?>, '<?php echo addslashes($details['visitor_name']); ?>', '<?php echo addslashes($details['flat_number']); ?>', <?php echo $new_visitor_log_data['expected_duration']; ?>)" 
+                                    class="bg-primary text-white px-6 py-3 rounded-lg hover:bg-primary/90">
+                                <i class="ri-qr-code-line mr-2"></i>Generate QR Code
+                            </button>
                         </div>
                     </div>
                 <?php endif; ?>
@@ -581,9 +715,14 @@ if (isset($_GET['logout'])) {
                                         </span>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                        <button onclick="checkoutVisitor(<?php echo $visitor['id']; ?>)" class="text-red-600 hover:text-red-800">
-                                            <i class="ri-logout-box-line"></i> Check Out
-                                        </button>
+                                        <div class="flex space-x-2">
+                                            <button onclick="generateVisitorQR(<?php echo $visitor['id']; ?>, '<?php echo htmlspecialchars($visitor['visitor_name']); ?>')" class="text-primary hover:text-primary/80" title="Generate QR Code">
+                                                <i class="ri-qr-code-line"></i>
+                                            </button>
+                                            <button onclick="checkoutVisitor(<?php echo $visitor['id']; ?>)" class="text-red-600 hover:text-red-800" title="Check Out">
+                                                <i class="ri-logout-box-line"></i>
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                                 <?php endforeach; ?>
@@ -703,6 +842,7 @@ if (isset($_GET['logout'])) {
         </div>
     </div>
 
+
     <script>
         // Toggle user menu
         function toggleUserMenu() {
@@ -756,6 +896,27 @@ if (isset($_GET['logout'])) {
                 closeCheckoutModal();
             }
         });
+
+        // Generate QR code for visitor
+        function generateVisitorQR(visitorId, visitorName) {
+            console.log('generateVisitorQR called with:', visitorId, visitorName);
+            
+            // Open QR generator in new window
+            const url = `qr_generator.php?action=visitor_qr&visitor_id=${visitorId}`;
+            window.open(url, '_blank', 'width=600,height=700');
+        }
+
+        // Generate QR code for check-in
+        function generateCheckinQR(logId, visitorName, flatNumber, expectedDuration) {
+            console.log('generateCheckinQR called with:', logId, visitorName, flatNumber, expectedDuration);
+            
+            // Open QR generator in new window
+            const url = `qr_generator.php?action=visitor_log_qr&log_id=${logId}`;
+            window.open(url, '_blank', 'width=600,height=700');
+        }
+
+
+
 
         // Auto-refresh page every 2 minutes to update timers
         setTimeout(function() {
