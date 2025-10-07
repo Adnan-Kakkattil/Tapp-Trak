@@ -255,6 +255,12 @@ if (isset($_GET['logout'])) {
                         </div>
                         Visitor Logs
                     </a>
+                    <a href="buildings_flats.php" class="flex items-center px-4 py-3 text-white/80 hover:bg-white/10 rounded-lg transition-colors">
+                        <div class="w-5 h-5 flex items-center justify-center mr-3">
+                            <i class="ri-building-line"></i>
+                        </div>
+                        Buildings & Flats
+                    </a>
                     <a href="settings.php" class="flex items-center px-4 py-3 text-white bg-white/20 rounded-lg">
                         <div class="w-5 h-5 flex items-center justify-center mr-3">
                             <i class="ri-settings-line"></i>

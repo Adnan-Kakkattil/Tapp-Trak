@@ -52,9 +52,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bind_param("sssssss", $full_name, $phone, $email, $company, $purpose, $id_proof_type, $id_proof_number);
             
             if ($stmt->execute()) {
+                $visitor_id = $db->getLastInsertId();
                 $message = 'Visitor added successfully!';
                 $message_type = 'success';
-                logActivity('visitor_added', 'visitors', $db->getLastInsertId());
+                logActivity('visitor_added', 'visitors', $visitor_id);
+                
+                // Store visitor ID for QR code generation
+                $_SESSION['new_visitor_id'] = $visitor_id;
             } else {
                 $message = 'Error adding visitor: ' . $db->getConnection()->error;
                 $message_type = 'error';
@@ -94,6 +98,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = 'Visitor checked in successfully!';
                 $message_type = 'success';
                 logActivity('visitor_checkin', 'visitor_logs', $visitor_log_id);
+                
+                // Store visitor log ID for QR code generation
+                $_SESSION['new_visitor_log_id'] = $visitor_log_id;
                 
                 // Send check-in notification
                 sendCheckinNotification($visitor_log_id);
@@ -275,6 +282,12 @@ if (isset($_GET['logout'])) {
                         Visitor Logs
                     </a>
                     <?php if (isAdmin()): ?>
+                    <a href="buildings_flats.php" class="flex items-center px-4 py-3 text-white/80 hover:bg-white/10 rounded-lg transition-colors">
+                        <div class="w-5 h-5 flex items-center justify-center mr-3">
+                            <i class="ri-building-line"></i>
+                        </div>
+                        Buildings & Flats
+                    </a>
                     <a href="settings.php" class="flex items-center px-4 py-3 text-white/80 hover:bg-white/10 rounded-lg transition-colors">
                         <div class="w-5 h-5 flex items-center justify-center mr-3">
                             <i class="ri-settings-line"></i>
