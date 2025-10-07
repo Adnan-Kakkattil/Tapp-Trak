@@ -1,10 +1,11 @@
 <?php
 /**
- * QR Code Generator using PHP
- * Simple QR code generation without external dependencies
+ * QR Code Generator using endroid/qr-code library
+ * Professional QR code generation with proper library
  */
 
 require_once 'config.php';
+require_once 'vendor/autoload.php';
 
 // Require login
 requireLogin();
@@ -12,23 +13,65 @@ requireLogin();
 // Get database instance
 $db = Database::getInstance();
 
-// Function to generate QR code using simple method
+use Endroid\QrCode\QrCode;
+use Endroid\QrCode\Writer\PngWriter;
+
+// Function to generate QR code using endroid/qr-code library v4.8
 function generateQRCode($data, $size = 200) {
-    // For now, we'll create a simple text-based QR representation
-    // In a real implementation, you would use a proper QR code library
-    
-    $qrData = json_encode($data);
-    $hash = md5($qrData);
-    
-    // Create a simple visual representation
-    $qrCode = "
-    <div style='border: 2px solid #000; padding: 20px; text-align: center; background: white; width: {$size}px; height: {$size}px; display: flex; flex-direction: column; justify-content: center;'>
-        <div style='font-size: 12px; font-weight: bold; margin-bottom: 10px;'>QR CODE</div>
-        <div style='font-size: 10px; word-break: break-all; margin-bottom: 10px;'>" . substr($hash, 0, 16) . "</div>
-        <div style='font-size: 8px; color: #666;'>TappTrak System</div>
-    </div>";
-    
-    return $qrCode;
+    try {
+        // Create QR code instance
+        $qrCode = new QrCode(json_encode($data));
+        $qrCode->setSize($size);
+        $qrCode->setMargin(10);
+        
+        // Create writer
+        $writer = new PngWriter();
+        $result = $writer->write($qrCode);
+        
+        // Get the data URI for embedding in HTML
+        $dataUri = $result->getDataUri();
+        
+        // Return HTML img tag with the QR code
+        return "<img src='{$dataUri}' alt='QR Code' style='width: {$size}px; height: {$size}px; border: 1px solid #ddd; border-radius: 8px;'>";
+        
+    } catch (Exception $e) {
+        // Fallback to simple representation if QR generation fails
+        $qrData = json_encode($data);
+        $hash = md5($qrData);
+        
+        return "
+        <div style='border: 2px solid #000; padding: 20px; text-align: center; background: white; width: {$size}px; height: {$size}px; display: flex; flex-direction: column; justify-content: center;'>
+            <div style='font-size: 12px; font-weight: bold; margin-bottom: 10px;'>QR CODE</div>
+            <div style='font-size: 10px; word-break: break-all; margin-bottom: 10px;'>" . substr($hash, 0, 16) . "</div>
+            <div style='font-size: 8px; color: #666;'>TappTrak System</div>
+            <div style='font-size: 8px; color: #f00; margin-top: 10px;'>Error: " . htmlspecialchars($e->getMessage()) . "</div>
+        </div>";
+    }
+}
+
+// Function to generate QR code as downloadable file
+function generateQRCodeFile($data, $filename = 'qr_code.png') {
+    try {
+        $qrCode = new QrCode(json_encode($data));
+        $qrCode->setSize(300);
+        $qrCode->setMargin(20);
+        
+        $writer = new PngWriter();
+        $result = $writer->write($qrCode);
+        
+        // Set headers for file download
+        header('Content-Type: image/png');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($result->getString()));
+        
+        echo $result->getString();
+        exit;
+        
+    } catch (Exception $e) {
+        header('HTTP/1.1 500 Internal Server Error');
+        echo 'Error generating QR code: ' . $e->getMessage();
+        exit;
+    }
 }
 
 // Handle QR code generation requests
@@ -105,6 +148,76 @@ if (isset($_GET['action'])) {
         } else {
             die('Visitor log not found');
         }
+    } elseif ($action === 'download_visitor_qr' && isset($_GET['visitor_id'])) {
+        $visitor_id = (int)$_GET['visitor_id'];
+        
+        // Get visitor data
+        $sql = "SELECT * FROM visitors WHERE id = ?";
+        $stmt = $db->prepare($sql);
+        $stmt->bind_param("i", $visitor_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $visitor = $result->fetch_assoc();
+        $stmt->close();
+        
+        if ($visitor) {
+            $qrData = [
+                'type' => 'visitor',
+                'id' => $visitor['id'],
+                'name' => $visitor['full_name'],
+                'phone' => $visitor['phone'],
+                'id_proof_type' => $visitor['id_proof_type'],
+                'id_proof_number' => $visitor['id_proof_number'],
+                'created_at' => date('Y-m-d H:i:s'),
+                'valid_until' => date('Y-m-d H:i:s', strtotime('+1 year'))
+            ];
+            
+            $filename = 'visitor_' . $visitor['id'] . '_' . preg_replace('/[^a-zA-Z0-9_]/', '_', $visitor['full_name']) . '.png';
+            generateQRCodeFile($qrData, $filename);
+        } else {
+            die('Visitor not found');
+        }
+    } elseif ($action === 'download_visitor_log_qr' && isset($_GET['log_id'])) {
+        $log_id = (int)$_GET['log_id'];
+        
+        // Get visitor log data
+        $sql = "SELECT 
+                    vl.*,
+                    v.full_name as visitor_name,
+                    v.phone as visitor_phone,
+                    f.flat_number,
+                    g.full_name as guard_name
+                FROM visitor_logs vl
+                JOIN visitors v ON vl.visitor_id = v.id
+                JOIN flats f ON vl.flat_id = f.id
+                JOIN guards g ON vl.guard_id = g.id
+                WHERE vl.id = ?";
+        
+        $stmt = $db->prepare($sql);
+        $stmt->bind_param("i", $log_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $visitor_log = $result->fetch_assoc();
+        $stmt->close();
+        
+        if ($visitor_log) {
+            $qrData = [
+                'type' => 'visitor_checkin',
+                'log_id' => $visitor_log['id'],
+                'visitor_name' => $visitor_log['visitor_name'],
+                'visitor_phone' => $visitor_log['visitor_phone'],
+                'flat_number' => $visitor_log['flat_number'],
+                'checkin_time' => $visitor_log['check_in_time'],
+                'expected_duration' => $visitor_log['expected_duration'],
+                'valid_until' => date('Y-m-d H:i:s', strtotime($visitor_log['check_in_time'] . ' +' . $visitor_log['expected_duration'] . ' minutes')),
+                'guard_name' => $visitor_log['guard_name']
+            ];
+            
+            $filename = 'checkin_' . $visitor_log['id'] . '_' . preg_replace('/[^a-zA-Z0-9_]/', '_', $visitor_log['visitor_name']) . '.png';
+            generateQRCodeFile($qrData, $filename);
+        } else {
+            die('Visitor log not found');
+        }
     } else {
         die('Invalid request');
     }
@@ -162,6 +275,9 @@ if (isset($_GET['action'])) {
                     <?php endif; ?>
                 </div>
                 <div class="flex justify-center space-x-3">
+                    <button onclick="downloadQRCode()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
+                        <i class="ri-download-line mr-2"></i>Download
+                    </button>
                     <button onclick="window.print()" class="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary/90">
                         <i class="ri-printer-line mr-2"></i>Print
                     </button>
@@ -172,5 +288,27 @@ if (isset($_GET['action'])) {
             </div>
         </div>
     </div>
+    
+    <script>
+        function downloadQRCode() {
+            // Get current URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const action = urlParams.get('action');
+            
+            // Create download URL
+            let downloadUrl = 'qr_generator.php?action=download_';
+            
+            if (action === 'visitor_qr') {
+                const visitorId = urlParams.get('visitor_id');
+                downloadUrl += 'visitor_qr&visitor_id=' + visitorId;
+            } else if (action === 'visitor_log_qr') {
+                const logId = urlParams.get('log_id');
+                downloadUrl += 'visitor_log_qr&log_id=' + logId;
+            }
+            
+            // Open download URL
+            window.open(downloadUrl, '_blank');
+        }
+    </script>
 </body>
 </html>
